@@ -1,0 +1,8 @@
+{
+  "MlopsBlueprintStack": {
+    "AlertsTopicArn": "arn:aws:sns:us-east-1:523208255557:MlopsBlueprintStack-MlopsAlertsTopic67AC3B83-7PGXPgTmQWZ5",
+    "SageMakerExecutionRoleArn": "arn:aws:iam::523208255557:role/MlopsBlueprintStack-SageMakerExecutionRole7843F3B8-6A8G16vJRw3A",
+    "AlertsModeOutput": "all",
+    "ArtifactsBucketName": "mlopsblueprintstack-mlopsartifactsbucketed627dbf-lniwlwdmqzm3"
+  }
+}

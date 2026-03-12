@@ -1,36 +1,43 @@
-# AWS SageMaker MLOps Blueprint  
-**SageMaker Pipelines → Evaluation Gate → Model Registry**
+# AWS SageMaker MLOps Blueprint
+**SageMaker Pipelines → Quality Gate → Model Registry → Real-time Endpoint → Drift Alarm**
 
-**Goal:** Demonstrate an end-to-end MLOps workflow on AWS using **SageMaker Pipelines**:
+This repo demonstrates a practical end-to-end MLOps workflow on AWS using **SageMaker Pipelines** and common production building blocks:
 
-- Raw data in S3 → preprocessing/splitting → training → evaluation  
-- A **quality gate** (ConditionStep) blocks/permits model promotion  
-- Passing models are **registered** in **SageMaker Model Registry** (Model Package Group)
-
+- Data in S3 → preprocess/split → train → evaluate
+- A **quality gate** blocks/permits model promotion
+- Passing models are versioned in **SageMaker Model Registry**
+- Approved models are deployed to a **real-time endpoint**
+- Basic drift monitoring: PSI metric → **CloudWatch Alarm → SNS email**
+- 
 🎥 **Video demo:** https://youtu.be/IdLPluh7-eo
 
 ---
 
+
 ## Why this project matters (portfolio summary)
 
-This project shows that I can build and operationalize a machine learning workflow on AWS, including orchestration, governance, and debugging cloud constraints.
+This project proves I can ship a cloud ML workflow that includes orchestration, governance, deployment, and monitoring.
 
 **Highlights**
-- Built an end-to-end SageMaker Pipeline using the SageMaker Python SDK
-- Implemented:
-  - **ProcessingStep** (preprocess + train/val/test split)
-  - **TrainingStep** (scikit-learn training job)
-  - **ProcessingStep** (evaluation + metrics artifact)
-  - **ConditionStep** (metric gate using macro F1)
-  - **RegisterModel** (Model Registry versioning + metadata)
-- Debugged real-world constraints:
-  - SageMaker quotas / instance availability (student/free account constraints)
-  - Model artifact format differences (`model.tar.gz` vs `model.joblib`)
-  - CloudWatch log-driven troubleshooting to root-cause failures
+- Built an end-to-end **SageMaker Pipeline** using the SageMaker Python SDK:
+  - `ProcessingStep` (preprocess + train/val/test split)
+  - `TrainingStep` (scikit-learn training job)
+  - `ProcessingStep` (evaluation + metrics artifact)
+  - `ConditionStep` (quality gate using macro F1)
+  - `RegisterModel` (Model Registry versioning + metadata)
+- Implemented deployment and ops workflows:
+  - Registry approval (CLI or UI)
+  - Endpoint deployment (data capture enabled)
+  - Drift monitoring (PSI metric publishing + CloudWatch alarm + SNS alerts)
+- Debugged real AWS constraints:
+  - instance availability + quotas
+  - model artifact formats (`model.tar.gz`)
+  - CloudWatch log-driven troubleshooting
 
 ---
 
 ## Architecture
+![architecture.png](docs/images/architecture.png)
 
 ### Pipeline flow (high level)
 
@@ -50,7 +57,7 @@ Train (TrainingStep)
   ▼
 Evaluate (ProcessingStep)
   - extracts model.tar.gz
-  - computes macro_f1 + classification_report
+  - computes macro_f1 + other metrics
   - output: evaluation.json in S3
   │
   ▼
@@ -61,143 +68,219 @@ CheckMetrics (ConditionStep)
   ▼
 RegisterModel (Model Registry)
   - creates model package version
-  - attaches metrics + artifacts
-  - approval status: PendingManualApproval
+  - approval status: PendingManualApproval (then you approve)
+
+```
 
 
-Orchestration (defines the DAG):
-  src/pipelines/build_pipeline.py
-  src/pipelines/run_pipeline.py
+## Repo structure
 
-Workload (executes inside AWS jobs):
-  src/preprocess/preprocess.py
-  src/train/train.py
-  src/evaluate/evaluate.py
-
-
-
-
+```text
 aws-mlops-blueprint/
-├── infra/                          # CDK infra (IAM role, S3 artifacts bucket, etc.)
+├── infra/                   # CDK infra: S3 bucket, SageMaker role, SNS + alert rules (+ formatter)
+├── scripts/                 # "one-command" scripts
+│   ├── deploy.ps1           # deploy infra + upload data + build + run pipeline
+│   ├── deploy-endpoint.ps1  # deploy latest approved model to endpoint
+│   ├── monitor.ps1          # publish PSI metrics + ensure alarm exists
+│   └── upload_data.ps1      # (optional) upload sample data only
 ├── ml/
-│   └── sample_data.csv             # Example dataset uploaded to S3
-└── src/
-    ├── pipelines/
-    │   ├── build_pipeline.py       # defines + upserts SageMaker Pipeline (DAG)
-    │   └── run_pipeline.py         # starts a pipeline execution
-    ├── preprocess/
-    │   └── preprocess.py           # raw CSV → train/val/test splits
-    ├── train/
-    │   └── train.py                # trains RandomForest → SM_MODEL_DIR
-    └── evaluate/
-        └── evaluate.py             # extracts model.tar.gz → evaluates → evaluation.json
+│   └── sample_data.csv      # example dataset used by the pipeline
+├── src/
+│   ├── pipelines/           # DAG definition + execution trigger
+│   ├── preprocess/          # preprocess + split
+│   ├── train/               # training script
+│   ├── evaluate/            # evaluation + metrics artifact
+│   ├── deploy/              # registry approval + endpoint deployment
+│   └── monitoring/          # alarms + PSI drift check
+└── docs/
+    ├── architecture.md
+    ├── dataset.md
+    ├── evaluation.md
+    ├── api.md
+    └── images/
+        ├── 01_deploy_success.png
+        ├── 02_pipeline_execution.png
+        ├── 03_model_registry.png
+        ├── 04_endpoint_inservice.png
+        ├── 05_invoke_endpoint.png
+        └── architecture.png
+        
+```
 
 
 
 
+## -Prerequisites
 
-- Prerequisites
-Confirm AWS CLI is configured:
-aws sts get-caller-identity
+- AWS CLI configured (aws sts get-caller-identity must work)
+- Python 3.10+
+- Node.js (for CDK in infra/)
+- PowerShell (Windows) (optional: there is a deploy.sh for Linux/macOS if you choose to support it)
 
+```text
 
-- Requirements:
-Python (recommended: 3.10+)
-Node.js + AWS CDK (only if you deploy infra from infra/)
-
-
-- How to run (Windows PowerShell)
-These are the exact steps/commands used during development.
-
-1) Create + activate venv
+Setup (recommended)
 python -m venv .venv1
 .\.venv1\Scripts\Activate.ps1
 python -m pip install --upgrade pip setuptools wheel
-pip install "sagemaker>=3.0.0" boto3 pandas scikit-learn joblib
+pip install -r requirements.txt
+```
+✅ Important: this repo pins SageMaker SDK 2.x because sagemaker.workflow is required.
+
+## One-command deploy (infra + pipeline run)
+
+This deploys:
+
+- S3 artifacts bucket
+- SageMaker execution role
+- SNS alerts + formatter + EventBridge rules
+- uploads ml/sample_data.csv
+- builds + runs the pipeline
+
+```text
+.\scripts\deploy.ps1 -Region us-east-1 -EmailForAlerts "prosperalabi7@gmail.com" -AlertsMode all
+```
 
 
-2) Deploy infrastructure (CDK)
-cd infra
-npm install
-cdk bootstrap
-cdk deploy
-cd ..
+## Expected output:
 
-This should create:
-An S3 artifacts bucket
-A SageMaker execution role
+- prints bucket name, role ARN, SNS topic ARN
+- prints the pipeline execution ARN
 
+📸 Screenshots:
 
-3) Upload data to S3
-aws s3 cp ml/sample_data.csv s3://<ARTIFACT_BUCKET>/data/raw/sample_data.csv
+![01_deploy_success.png](docs/images/01_deploy_success.png)docs/images/01_deploy_success.png
+
+![02_pipeline_execution.png](docs/images/02_pipeline_execution.png)docs/images/02_pipeline_execution.png
 
 
-4) Set environment variables
-$env:SAGEMAKER_ROLE_ARN="arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>"
-$env:ARTIFACT_BUCKET="<ARTIFACT_BUCKET>"
-$env:AWS_REGION="us-east-1"
+## Model Registry
 
+- List latest model packages:
 
-5) Build (upsert) the pipeline
-python -u .\src\pipelines\build_pipeline.py
-aws sagemaker list-pipelines --region us-east-1
-
-
-6) Run the pipeline
-python -u .\src\pipelines\run_pipeline.py
-Monitoring & debugging
-- Check executions
-aws sagemaker list-pipeline-executions `
-  --pipeline-name mlops-blueprint-pipeline `
+```text
+aws sagemaker list-model-packages `
+  --model-package-group-name "mlops-blueprint-model-group" `
+  --sort-by CreationTime `
+  --sort-order Descending `
+  --max-results 5 `
   --region us-east-1
-- Check execution steps (most important)
-aws sagemaker list-pipeline-execution-steps `
-  --pipeline-execution-arn "<PIPELINE_EXECUTION_ARN>" `
-  --region us-east-1
-  
-  
-- Pull CloudWatch logs for failures
-- Processing jobs:
-
-aws logs describe-log-streams `
-  --log-group-name "/aws/sagemaker/ProcessingJobs" `
-  --order-by LastEventTime `
-  --descending `
-  --max-items 5 `
-  --region us-east-1
-
-aws logs get-log-events `
-  --log-group-name "/aws/sagemaker/ProcessingJobs" `
-  --log-stream-name "<LOG_STREAM_NAME>" `
-  --limit 200 `
-  --region us-east-1
-
-- Training jobs:
-
-aws logs describe-log-streams `
-  --log-group-name "/aws/sagemaker/TrainingJobs" `
-  --order-by LastEventTime `
-  --descending `
-  --max-items 5 `
-  --region us-east-1
-
-aws logs get-log-events `
-  --log-group-name "/aws/sagemaker/TrainingJobs" `
-  --log-stream-name "<LOG_STREAM_NAME>" `
-  --limit 200 `
-  --region us-east-1
-  
-  
-  
-- Successful run proof (Pipeline execution)
+```
 
 
-{
-  "PipelineExecutionSteps": [
-    { "StepName": "Preprocess", "StepStatus": "Succeeded" },
-    { "StepName": "Train", "StepStatus": "Succeeded" },
-    { "StepName": "Evaluate", "StepStatus": "Succeeded" },
-    { "StepName": "CheckMetrics", "StepStatus": "Succeeded", "Outcome": "True" },
-    { "StepName": "RegisterModel-RegisterModel", "StepStatus": "Succeeded" }
-  ]
-}
+## Approve a model package (example v3):
+
+```text
+python .\src\deploy\approve_model_package.py `
+  --region us-east-1 `
+  --model-package-arn "arn:aws:sagemaker:us-east-1:<ACCOUNT_ID>:model-package/mlops-blueprint-model-group/3" `
+  --approval-status Approved `
+  --approval-description "Approved via CLI"
+```
+
+
+![03_model_registry.png](docs/images/03_model_registry.png)📸 Screenshot: docs/images/03_model_registry.png
+
+## Deploy endpoint (latest approved model)
+
+- Deploy the most recent Approved package in the registry group to a real-time endpoint:
+
+```text
+.\scripts\deploy-endpoint.ps1 `
+  -Region us-east-1 `
+  -StackName MlopsBlueprintStack `
+  -EndpointName aws-mlops-blueprint-endpoint `
+  -InstanceType ml.t2.medium `
+  -InitialInstanceCount 1 `
+  -Wait
+
+```
+
+![04_endpoint_inservice.png](docs/images/04_endpoint_inservice.png)📸 Screenshot: docs/images/04_endpoint_inservice.png
+
+## Invoke endpoint (API instructions)
+
+- Create a payload:
+
+```text
+'{"instances":[[1.0,2.0,3.0],[4.0,5.0,6.0]]}' | Out-File -Encoding ascii payload.json
+```
+
+
+- Invoke:
+
+```text
+$ENDPOINT="aws-mlops-blueprint-endpoint"
+$REGION="us-east-1"
+
+aws sagemaker-runtime invoke-endpoint `
+  --endpoint-name $ENDPOINT `
+  --content-type "application/json" `
+  --accept "application/json" `
+  --body fileb://payload.json `
+  out.json `
+  --region $REGION
+
+Get-Content out.json
+```
+
+- Expected output:
+
+```text
+{"predictions":[0,0]}
+```
+
+![05_invoke_endpoint.png](docs/images/05_invoke_endpoint.png)📸 Screenshot: docs/images/05_invoke_endpoint.png
+- Full docs: [api.md](docs/api.md)
+
+## Model evaluation
+
+- The evaluation step writes evaluation.json to S3 under the pipeline execution prefix, e.g.:
+
+```text
+s3://<ARTIFACT_BUCKET>/mlops-blueprint-pipeline/<EXECUTION_ID>/Evaluate/output/evaluation/evaluation.json
+```
+
+
+### Metrics include:
+
+- macro_f1
+- plus additional sklearn classification metrics computed in src/evaluate/evaluate.py
+
+Full docs: docs/evaluation.md
+
+## Dataset explanation
+
+### The dataset in ml/sample_data.csv is a small demo dataset with:
+
+- 3 numeric features: f1, f2, f3
+- label column: label
+- Preprocess creates train/val/test splits and writes them to S3 under the pipeline execution prefix.
+
+Full docs: [dataset.md](docs/dataset.md)
+
+
+## Monitoring (drift + alarm)
+
+### This repo includes a lightweight drift check that:
+
+- loads baseline CSV from S3
+- loads “recent” CSVs from an S3 prefix
+- computes PSI per feature and overall
+- publishes metrics to CloudWatch
+- CloudWatch Alarm triggers SNS when threshold is breached
+
+Run:
+```text
+.\scripts\monitor.ps1 -Region us-east-1 -Threshold 0.25
+```
+
+- Force an alarm (manual test)
+```text
+aws cloudwatch put-metric-data `
+  --namespace "MLOpsBlueprint/Drift" `
+  --metric-data "MetricName=OverallPSI_Max,Dimensions=[{Name=Project,Value=aws-mlops-blueprint}],Value=0.99" `
+  --region us-east-1}
+```
+
+

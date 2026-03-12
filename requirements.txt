@@ -1,0 +1,7 @@
+# Pinned because your pipeline code uses sagemaker.workflow (Pipelines SDK v2 style)
+sagemaker==2.232.0
+
+boto3>=1.28.0
+pandas>=2.0.0
+scikit-learn>=1.2.0
+joblib>=1.2.0
