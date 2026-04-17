@@ -1,4 +1,4 @@
-# AWS SageMaker MLOps Blueprint
+# AWS SageMaker MLOps Pipeline Template
 **SageMaker Pipelines → Quality Gate → Model Registry → Real-time Endpoint → Drift Alarm**
 
 This repo demonstrates a practical end-to-end MLOps workflow on AWS using **SageMaker Pipelines** and common production building blocks:
